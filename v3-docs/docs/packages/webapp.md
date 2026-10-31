@@ -91,11 +91,11 @@ Here's a sample _index.html_ you might use to get started:
 ```
 
 ```javascript [index.js]
-/* global WebApp Assets */
+/* global Assets */
 import crypto from "crypto";
-import express from "express";
+import { WebApp } from "meteor/webapp";
 
-const router = express.Router();
+const router = WebApp.express.Router();
 
 router.get("/", async function (req, res, next) {
   const buf = await Assets.getTextAsync("index.html");
@@ -128,7 +128,7 @@ There are a couple things to think about with this approach.
 
 We're reading the contents of index.html using the [Assets](../api/assets.md) module that makes it really easy to read files out of the _private_ root folder.
 
-We're using the [connect-route](https://www.npmjs.com/package/connect-route) NPM package to simplify WebApp route processing. But you can use any package you want to understand what is being requested.
+We're using an Express router from `WebApp.express.Router()` to simplify WebApp route processing. `WebApp.express` is the Express module bundled with `webapp`, so you don't need to add `express` to your app's npm dependencies. But you can use any package you want to understand what is being requested.
 
 And finally, if you decide to use this technique you'll want to make sure you understand how conflicting client side routing will affect user experience.
 

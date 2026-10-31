@@ -40,8 +40,17 @@ The package will take care of the rest.
 > You can force this by switching protocol like `smtp` to the name of the service.
 > Though you should only use this as a stop-gap measure and instead set the settings properly.
 
-If neither option is set, `Email.send` outputs the message to standard output
-instead.
+If neither option is set, what happens depends on the environment:
+
+- In development, `Email.sendAsync` (and `Email.send`) outputs the message to
+  standard output instead of sending it.
+- In production (`Meteor.isProduction`, for example when running with
+  `--production`), the email settings are required: `Email.sendAsync` rejects
+  with a "You have not provided a mail URL" error and nothing is printed.
+  `Email.send` logs that error to the console.
+
+If you define [`Email.customTransport`](#Email-customTransport), it is used
+before this check, so neither `MAIL_URL` nor the package settings are needed.
 
 > Package setting is only available since Email v2.2
 

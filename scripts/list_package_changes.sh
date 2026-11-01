@@ -21,13 +21,24 @@ set -euo pipefail
 OUTPUT_FILE=""
 EXCLUDE_AUTHORS=""
 
+# Stops with a clear message when an option has no value (or is followed by
+# another option), instead of `set -u` failing on an unbound $2.
+require_value() {
+  if [[ $# -lt 2 || "$2" == --* ]]; then
+    echo "❌  $1 requires a value. Usage: $0 [--output file.json] [--exclude-author author1,author2,...]"
+    exit 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output)
+      require_value "$@"
       OUTPUT_FILE="$2"
       shift 2
       ;;
     --exclude-author)
+      require_value "$@"
       EXCLUDE_AUTHORS="$2"
       shift 2
       ;;

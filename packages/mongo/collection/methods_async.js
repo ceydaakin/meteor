@@ -1,6 +1,6 @@
 export const AsyncMethods = {
   /**
-   * @summary Finds the first document that matches the selector, as ordered by sort and skip options. Returns `undefined` if no matching document is found.
+   * @summary Finds the first document that matches the selector, as ordered by sort and skip options. Returns a Promise that resolves to `undefined` if no matching document is found.
    * @locus Anywhere
    * @method findOneAsync
    * @memberof Mongo.Collection
@@ -14,7 +14,7 @@ export const AsyncMethods = {
    * @param {Function} options.transform Overrides `transform` on the [`Collection`](#collections) for this cursor.  Pass `null` to disable transformation.
    * @param {String} options.readPreference (Server only) Specifies a custom MongoDB [`readPreference`](https://docs.mongodb.com/manual/core/read-preference) for fetching the document. Possible values are `primary`, `primaryPreferred`, `secondary`, `secondaryPreferred` and `nearest`.
    * @param {Object} options.collation Specifies a [collation](https://docs.mongodb.com/manual/reference/collation/) for string comparison. See [`find`](#find) for details.
-   * @returns {Object}
+   * @returns {Promise<Object|undefined>}
    */
   findOneAsync(...args) {
     return this._collection.findOneAsync(

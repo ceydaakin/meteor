@@ -106,3 +106,163 @@ Tinytest.add("retry - clear is idempotent", (test) => {
   retry.clear();
   test.ok();
 });
+
+// A minimal AbortSignal stand-in that records listener bookkeeping, so the
+// tests can check listener release without relying on engine internals.
+const makeSignal = () => {
+  const listeners = new Set();
+  return {
+    aborted: false,
+    listeners,
+    addEventListener(type, listener) {
+      if (type === "abort") listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type === "abort") listeners.delete(listener);
+    },
+    abort() {
+      if (this.aborted) return;
+      this.aborted = true;
+      [...listeners].forEach((listener) => listener());
+    },
+  };
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+Tinytest.addAsync("retry - signal aborted before firing cancels the callback", async (test) => {
+  const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+  const signal = makeSignal();
+  let fired = false;
+  const delay = retry.retryLater(0, () => (fired = true), { signal });
+  test.equal(delay, 1);
+  test.equal(signal.listeners.size, 1);
+
+  signal.abort();
+  test.equal(signal.listeners.size, 0, "abort releases the listener");
+
+  await wait(30);
+  test.isFalse(fired, "aborted callback should not fire");
+  signal.abort();
+  retry.clear();
+});
+
+Tinytest.addAsync(
+  "retry - already aborted signal schedules nothing and replaces pending attempt",
+  async (test) => {
+    const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+    const firstSignal = makeSignal();
+    let firedFirst = false;
+    let firedSecond = false;
+    retry.retryLater(0, () => (firedFirst = true), { signal: firstSignal });
+
+    const aborted = makeSignal();
+    aborted.aborted = true;
+    test.equal(
+      retry.retryLater(0, () => (firedSecond = true), { signal: aborted }),
+      1,
+    );
+    test.equal(aborted.listeners.size, 0, "no listener on an already-aborted signal");
+    test.equal(firstSignal.listeners.size, 0, "replaced attempt released its listener");
+
+    await wait(30);
+    test.isFalse(firedFirst, "previous attempt should be cancelled");
+    test.isFalse(firedSecond, "already-aborted attempt should not fire");
+  },
+);
+
+Tinytest.addAsync("retry - callback fires with a signal that is never aborted", async (test) => {
+  const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+  const signal = makeSignal();
+  await new Promise((resolve) => retry.retryLater(0, resolve, { signal }));
+  test.equal(signal.listeners.size, 0, "completion releases the listener");
+  retry.clear();
+});
+
+Tinytest.addAsync(
+  "retry - aborting a replaced signal does not cancel the newer attempt",
+  async (test) => {
+    const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+    const oldSignal = makeSignal();
+    const newSignal = makeSignal();
+    let firedOld = false;
+    let firedNew = false;
+    retry.retryLater(0, () => (firedOld = true), { signal: oldSignal });
+    retry.retryLater(0, () => (firedNew = true), { signal: newSignal });
+    test.equal(oldSignal.listeners.size, 0, "replacement releases the old listener");
+
+    oldSignal.abort();
+    await wait(30);
+    test.isFalse(firedOld, "replaced attempt should not fire");
+    test.isTrue(firedNew, "newer attempt should still fire");
+    retry.clear();
+  },
+);
+
+Tinytest.addAsync(
+  "retry - clear releases the abort listener and repeated abort/clear is safe",
+  async (test) => {
+    const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+    const signal = makeSignal();
+    let fired = false;
+    retry.retryLater(0, () => (fired = true), { signal });
+    retry.clear();
+    test.equal(signal.listeners.size, 0, "clear releases the listener");
+    retry.clear();
+    signal.abort();
+    signal.abort();
+    retry.clear();
+
+    await wait(30);
+    test.isFalse(fired);
+  },
+);
+
+Tinytest.addAsync(
+  "retry - callback that reschedules keeps its new timer and listener",
+  async (test) => {
+    // count 0 waits minTimeout (1ms); count 1 waits baseTimeout * exponent = 50ms.
+    const retry = new Retry({ minCount: 1, minTimeout: 1, baseTimeout: 50, exponent: 1, fuzz: 0 });
+    const firstSignal = makeSignal();
+    const secondSignal = makeSignal();
+    let firedSecond = false;
+    let resolveFirst;
+    const firstRan = new Promise((resolve) => (resolveFirst = resolve));
+
+    retry.retryLater(
+      0,
+      () => {
+        retry.retryLater(1, () => (firedSecond = true), { signal: secondSignal });
+        // Aborting the first signal after its callback began must not touch
+        // the attempt the callback just scheduled.
+        firstSignal.abort();
+        resolveFirst();
+      },
+      { signal: firstSignal },
+    );
+
+    await firstRan;
+    test.equal(firstSignal.listeners.size, 0, "started attempt released its listener");
+    test.equal(secondSignal.listeners.size, 1, "rescheduled attempt keeps its listener");
+    await wait(100);
+    test.isTrue(firedSecond, "rescheduled attempt should fire");
+    test.equal(secondSignal.listeners.size, 0);
+    retry.clear();
+  },
+);
+
+Tinytest.addAsync("retry - works with a real AbortController", async (test) => {
+  if (typeof AbortController === "undefined") {
+    test.ok();
+    return;
+  }
+  const retry = new Retry({ minCount: 1, minTimeout: 1, fuzz: 0 });
+  const controller = new AbortController();
+  let fired = false;
+  const delay = retry.retryLater(0, () => (fired = true), { signal: controller.signal });
+  controller.abort();
+  test.equal(delay, 1);
+  await wait(30);
+  test.isFalse(fired, "aborted callback should not fire");
+  retry.clear();
+});

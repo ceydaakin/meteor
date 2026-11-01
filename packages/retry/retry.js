@@ -26,6 +26,7 @@ export class Retry {
     this.minCount = minCount;
     this.fuzz = fuzz;
     this.retryTimer = null;
+    this._removeAbortListener = null;
   }
 
   // Reset a pending retry, if any.
@@ -34,6 +35,13 @@ export class Retry {
       clearTimeout(this.retryTimer);
     }
     this.retryTimer = null;
+    this._releaseAbortListener();
+  }
+
+  _releaseAbortListener() {
+    const remove = this._removeAbortListener;
+    this._removeAbortListener = null;
+    if (remove) remove();
   }
 
   // Calculate how long to wait in milliseconds to retry, based on the
@@ -53,10 +61,29 @@ export class Retry {
   }
 
   // Call `fn` after a delay, based on the `count` of which retry this is.
-  retryLater(count, fn) {
+  // Replaces any pending attempt. If `signal` (an AbortSignal) aborts before
+  // `fn` starts, the attempt is cancelled; an already-aborted signal schedules
+  // nothing. Returns the delay in milliseconds either way.
+  retryLater(count, fn, { signal } = {}) {
     const timeout = this._timeout(count);
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = Meteor.setTimeout(fn, timeout);
+    this.clear();
+
+    if (!signal) {
+      this.retryTimer = Meteor.setTimeout(fn, timeout);
+      return timeout;
+    }
+    if (signal.aborted) return timeout;
+
+    const onAbort = () => this.clear();
+    signal.addEventListener("abort", onAbort, { once: true });
+    this._removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    this.retryTimer = Meteor.setTimeout(() => {
+      // Release before `fn` runs: a later abort must not undo a started
+      // callback, and `fn` may schedule a new attempt with its own listener.
+      this.retryTimer = null;
+      this._releaseAbortListener();
+      return fn();
+    }, timeout);
     return timeout;
   }
 }

@@ -67,6 +67,7 @@ export class ReactiveDict {
     this.allDeps = new Tracker.Dependency;
     this.keyDeps = {}; // key -> Dependency
     this.keyValueDeps = {}; // key -> Dependency
+    this.keyPresenceDeps = {}; // key -> Dependency
   }
 
   // set() began as a key/value method, but we are now overloading it
@@ -114,6 +115,11 @@ export class ReactiveDict {
         changed(this.keyValueDeps[key][value]);
       }
     }
+
+    // this.keyPresenceDeps is undefined when setting initial data from constructor
+    if (!keyExisted && this.keyPresenceDeps) {
+      changed(this.keyPresenceDeps[key]);
+    }
   }
 
   /**
@@ -153,6 +159,37 @@ export class ReactiveDict {
     this._ensureKey(key);
     this.keyDeps[key].depend();
     return parse(this.keys[key]);
+  }
+
+  /**
+   * @summary Test if the ReactiveDict has an entry for a key, even if its
+   * value is `undefined`. If inside a [reactive computation](#reactivity),
+   * invalidate the computation the next time the key is added or removed,
+   * but not when only its value changes.
+   * @locus Client
+   * @param {String} key The key to test
+   * @returns {Boolean}
+   */
+  has(key) {
+    if (Tracker.active) {
+      if (! hasOwn.call(this.keyPresenceDeps, key)) {
+        this.keyPresenceDeps[key] = new Tracker.Dependency;
+      }
+
+      const isNew = this.keyPresenceDeps[key].depend();
+      if (isNew) {
+        Tracker.onInvalidate(() => {
+          // clean up the dependency once nothing depends on it, so we don't
+          // use O(n) memory for n = keys ever tested
+          if (this.keyPresenceDeps[key] &&
+              ! this.keyPresenceDeps[key].hasDependents()) {
+            delete this.keyPresenceDeps[key];
+          }
+        });
+      }
+    }
+
+    return hasOwn.call(this.keys, key);
   }
 
   /**
@@ -250,6 +287,7 @@ export class ReactiveDict {
 
     Object.keys(oldKeys).forEach(key => {
       changed(this.keyDeps[key]);
+      changed(this.keyPresenceDeps[key]);
       if (this.keyValueDeps[key]) {
         changed(this.keyValueDeps[key][oldKeys[key]]);
         changed(this.keyValueDeps[key]['undefined']);
@@ -272,6 +310,7 @@ export class ReactiveDict {
       const oldValue = this.keys[key];
       delete this.keys[key];
       changed(this.keyDeps[key]);
+      changed(this.keyPresenceDeps[key]);
       if (this.keyValueDeps[key]) {
         changed(this.keyValueDeps[key][oldValue]);
         changed(this.keyValueDeps[key]['undefined']);

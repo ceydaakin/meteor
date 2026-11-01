@@ -97,6 +97,8 @@ Template.main.events({
 
 <ApiBox name="ReactiveDict#delete" instanceName="reactiveDict" />
 
+<ApiBox name="ReactiveDict#has" instanceName="reactiveDict" />
+
 <ApiBox name="ReactiveDict#equals" instanceName="reactiveDict" />
 
 If value is a scalar, then these two expressions do the same thing:

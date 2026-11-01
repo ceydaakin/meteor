@@ -194,3 +194,91 @@ Tinytest.add('ReactiveDict - destroy works', function (test) {
   // Shouldn't throw now that we've destroyed the previous dict
   dict = new ReactiveDict('test');
 });
+
+Tinytest.add('ReactiveDict - has(key) reports presence', function (test) {
+  const dict = new ReactiveDict({ initial: 1 });
+  test.isTrue(dict.has('initial'));
+  test.isFalse(dict.has('foo'));
+
+  [undefined, null, false, 0, ''].forEach(function (value, i) {
+    dict.set(`k${i}`, value);
+    test.isTrue(dict.has(`k${i}`));
+  });
+
+  dict.set({ fromObject: undefined });
+  test.isTrue(dict.has('fromObject'));
+  dict.setDefault('fromDefault', undefined);
+  test.isTrue(dict.has('fromDefault'));
+  dict.setDefault({ fromDefaultObject: null });
+  test.isTrue(dict.has('fromDefaultObject'));
+
+  // Outside a computation, has() registers no dependency.
+  test.equal(dict.keyPresenceDeps, {});
+});
+
+Tinytest.add('ReactiveDict - has(key) reruns only on presence changes', function (test) {
+  const dict = new ReactiveDict;
+  const seen = [];
+  const other = [];
+  const c1 = Tracker.autorun(function () {
+    seen.push(dict.has('nickname'));
+  });
+  const c2 = Tracker.autorun(function () {
+    other.push(dict.has('nickname'));
+  });
+
+  dict.set('nickname', undefined);
+  Tracker.flush();
+  test.equal(seen, [false, true]);
+
+  // Value-only changes and unrelated keys do not rerun.
+  dict.set('nickname', 'Ada');
+  dict.set('unrelated', 1);
+  dict.setDefault('nickname', 'other');
+  dict.setDefault({ nickname: 'other' });
+  Tracker.flush();
+  test.equal(seen, [false, true]);
+
+  dict.delete('nickname');
+  Tracker.flush();
+  test.equal(seen, [false, true, false]);
+
+  // Deleting or clearing an absent key is not a presence change.
+  dict.delete('nickname');
+  dict.clear();
+  Tracker.flush();
+  test.equal(seen, [false, true, false]);
+
+  dict.set({ nickname: 'Ada' });
+  Tracker.flush();
+  test.equal(seen, [false, true, false, true]);
+
+  dict.clear();
+  Tracker.flush();
+  test.equal(seen, [false, true, false, true, false]);
+  test.equal(other, seen);
+
+  // A stopped computation is not rerun, and the other reader still is.
+  c1.stop();
+  dict.setDefault('nickname', 'x');
+  Tracker.flush();
+  test.equal(seen, [false, true, false, true, false]);
+  test.equal(other, [false, true, false, true, false, true]);
+
+  c2.stop();
+  Tracker.flush();
+  test.equal(dict.keyPresenceDeps, {});
+});
+
+Tinytest.add('ReactiveDict - has(key) after destroy', function (test) {
+  const dict = new ReactiveDict('has-destroy', { foo: 'bar' });
+  const seen = [];
+  const c = Tracker.autorun(function () {
+    seen.push(dict.has('foo'));
+  });
+
+  dict.destroy();
+  Tracker.flush();
+  test.equal(seen, [true, false]);
+  c.stop();
+});
